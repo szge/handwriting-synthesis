@@ -1,7 +1,8 @@
-matplotlib>=2.1.0
-pandas>= 0.22.0
-scikit-learn>=0.19.1
-scipy>=1.0.0
-svgwrite>=1.1.12
-tensorflow==2.12.0
-tensorflow-probability==0.20.1
+matplotlib==3.10.0
+numpy==2.2.0
+pandas==2.2.3
+scikit_learn==1.6.0
+scipy==1.14.1
+svgwrite==1.4.3
+tensorflow_macos==2.14.1
+tensorflow_probability==0.22.1
