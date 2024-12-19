@@ -86,7 +86,7 @@ if __name__ == '__main__':
         "to see how it looks"
     ]
     biases = [0.75 for i in lines]  # Higher bias = neater writing
-    styles = [14 for i in lines]    # Use your captured style number here
+    styles = [13 for i in lines]    # Use your captured style number here
     
     hand.write(
         filename='img/custom_style.svg',
