@@ -19,6 +19,7 @@ class StyleTool:
         self.BLACK = (0, 0, 0)
         self.GRAY = (200, 200, 200)
         self.BLUE = (0, 0, 255)
+        self.RED = (255, 0, 0)
         
         # Font
         self.font = pygame.font.SysFont('Arial', 20)
@@ -28,13 +29,17 @@ class StyleTool:
         self.max_style = self._get_max_style()
         
         # Drawing variables
-        self.strokes = []  # List to store all strokes
-        self.current_stroke = []  # Current stroke points
+        self.drawing_scale = 2.0
+        self.writing_area = pygame.Rect(50, 100, 700, 200)  # Increased width from 300 to 700
+        self.strokes = []
+        self.current_stroke = []
         self.drawing = False
-        self.drawing_mode = False  # Toggle between view/draw modes
+        self.drawing_mode = False
+        self.max_points = 1200  # Maximum number of points allowed
+        self.current_points = 0  # Counter for current points
         
         # Text input
-        self.default_text = "A lazy zebra gazes at the moon"  # New default text with 'a' and 'z'
+        self.default_text = "Quick brown fox jumps over the lazy dog"
         self.text = self.default_text
         
         # Load initial style
@@ -51,6 +56,8 @@ class StyleTool:
         self.refresh_button = pygame.Rect(670, button_y, 100, 30)
         self.new_button = pygame.Rect(670, 10, 100, 30)  # New button in top-right
 
+        self.num_strokes = 0  # Add stroke counter
+
     def _get_max_style(self):
         style_num = 0
         while os.path.exists(f"{style_path}/style-{style_num}-strokes.npy"):
@@ -59,31 +66,38 @@ class StyleTool:
 
     def load_current_style(self):
         try:
-            self.strokes = []  # Clear any drawing strokes
+            self.strokes = []
             self.current_stroke = []
             
             loaded_strokes = np.load(f"{style_path}/style-{self.current_style}-strokes.npy")
             self.text = np.load(f"{style_path}/style-{self.current_style}-chars.npy").tostring().decode('utf-8')
             
+            # Count the number of strokes by counting end-stroke flags (1s in third column)
+            self.current_points = len(loaded_strokes)
+            num_strokes = np.sum(loaded_strokes[:, 2] == 1)
+            
             # Convert offsets to absolute coordinates
             coords = []
-            current_pos = np.array([400, 150])  # Start at center
+            current_pos = np.array([self.writing_area.left + 50, self.writing_area.centery])
             
             for stroke in loaded_strokes:
-                offset = np.array([stroke[0], -stroke[1]])
+                offset = np.array([stroke[0], -stroke[1]]) * self.drawing_scale
                 current_pos = current_pos + offset
                 coords.append(current_pos.copy())
                 
-                if stroke[2] == 1:  # End of stroke
-                    coords.append(None)  # Mark stroke boundary
+                if stroke[2] == 1:
+                    coords.append(None)
             
             self.coords = coords
+            self.num_strokes = int(num_strokes)  # Store stroke count
             self.drawing_mode = False
             
         except Exception as e:
             print(f"Error loading style {self.current_style}: {e}")
             self.coords = []
             self.text = "Error loading style"
+            self.current_points = 0
+            self.num_strokes = 0
 
     def save_strokes(self):
         if not self.strokes:
@@ -91,34 +105,29 @@ class StyleTool:
             return
             
         formatted_strokes = []
-        center_pos = np.array([400, 150])  # Same center position as in load_current_style
-        last_pos = center_pos
+        start_pos = np.array([self.writing_area.left + 50, self.writing_area.centery])  # Start from left
+        last_pos = start_pos
         
         for stroke in self.strokes:
             if len(stroke) < 2:
                 continue
             
             stroke = np.array(stroke)
-            # Calculate offset from center for first point of stroke
             first_offset = stroke[0] - last_pos
-            # Calculate offsets between consecutive points within the stroke
             point_offsets = np.diff(stroke, axis=0)
             
-            # Combine first offset with point offsets
             offsets = np.vstack([first_offset, point_offsets])
             
             if len(offsets) > 0:
-                # Invert y-coordinates for offsets
+                offsets = offsets / self.drawing_scale
                 offsets[:, 1] *= -1
                 
-                # Add end-stroke flags (0 for all except last point)
                 flags = np.zeros(len(offsets))
                 flags[-1] = 1
                 
                 stroke_data = np.column_stack((offsets, flags))
                 formatted_strokes.extend(stroke_data)
             
-            # Update last position for next stroke
             last_pos = stroke[-1]
         
         if not formatted_strokes:
@@ -127,30 +136,39 @@ class StyleTool:
             
         formatted_strokes = np.array(formatted_strokes)
         
-        # Save over current style
         np.save(f"{style_path}/style-{self.current_style}-strokes.npy", formatted_strokes)
         np.save(f"{style_path}/style-{self.current_style}-chars.npy", self.text.encode())
         
         print(f"Success! Saved as style-{self.current_style}\nStrokes shape: {formatted_strokes.shape}")
-        self.load_current_style()  # Reload to verify
+        self.load_current_style()
 
     def draw_screen(self):
         self.screen.fill(self.WHITE)
         
-        # Draw style info
+        # Draw style info with point and stroke counter
         info_text = f"Style {self.current_style} of {self.max_style}"
-        if self.drawing_mode:
-            info_text += " (Drawing Mode)"
-        text_surface = self.font.render(info_text, True, self.BLACK)
+        info_text += f" (Points: {self.current_points}, Strokes: {self.num_strokes})"
+        
+        text_surface = self.font.render(info_text, True, 
+                                      self.RED if self.current_points >= self.max_points else self.BLACK)
         self.screen.blit(text_surface, (10, 10))
         
-        # Draw sample text
-        text_surface = self.font.render(f"Text: {self.text[:50]}...", True, self.BLACK)
-        self.screen.blit(text_surface, (10, 40))
+        # Draw writing area
+        pygame.draw.rect(self.screen, self.GRAY, self.writing_area, 1)
         
-        # Draw guidelines
-        pygame.draw.line(self.screen, self.GRAY, (0, 150), (self.width, 150), 1)
-        pygame.draw.line(self.screen, self.GRAY, (0, 100), (self.width, 100), 1)
+        # Draw baseline and midline
+        baseline_y = self.writing_area.centery
+        midline_y = baseline_y - 50
+        pygame.draw.line(self.screen, self.GRAY, 
+                        (self.writing_area.left, baseline_y),
+                        (self.writing_area.right, baseline_y), 1)
+        pygame.draw.line(self.screen, self.GRAY,
+                        (self.writing_area.left, midline_y),
+                        (self.writing_area.right, midline_y), 1)
+        
+        # Draw sample text
+        text_surface = self.font.render(f"Text: {self.text[:50]}", True, self.BLACK)
+        self.screen.blit(text_surface, (10, 40))
         
         if self.drawing_mode:
             # Draw all completed strokes
@@ -208,8 +226,7 @@ class StyleTool:
     def create_new_style(self):
         self.current_style = self.max_style + 1
         self.max_style = self.current_style
-        self.strokes = []
-        self.current_stroke = []
+        self.clear_strokes()
         self.coords = []
         self.text = self.default_text
         self.drawing_mode = True
@@ -246,17 +263,30 @@ class StyleTool:
                     elif self.new_button.collidepoint(event.pos):
                         self.create_new_style()
                     elif self.drawing_mode:
-                        self.drawing = True
-                        self.current_stroke = [event.pos]
+                        # Only start drawing if click is inside writing area
+                        if self.writing_area.collidepoint(event.pos):
+                            self.drawing = True
+                            self.current_stroke = [event.pos]
                 
                 elif event.type == pygame.MOUSEBUTTONUP:
                     if self.drawing_mode and self.drawing and self.current_stroke:
                         self.strokes.append(self.current_stroke)
                         self.current_stroke = []
+                        self.num_strokes += 1  # Increment stroke counter
                     self.drawing = False
                 
                 elif event.type == pygame.MOUSEMOTION and self.drawing:
-                    self.current_stroke.append(event.pos)
+                    if self.writing_area.collidepoint(event.pos):
+                        if self.current_points < self.max_points:
+                            self.current_stroke.append(event.pos)
+                            self.current_points += 1
+                        else:
+                            # End the stroke if we hit the limit
+                            if self.current_stroke:
+                                self.strokes.append(self.current_stroke)
+                                self.current_stroke = []
+                                self.num_strokes += 1
+                            self.drawing = False
                 
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_LEFT:
@@ -271,6 +301,12 @@ class StyleTool:
             self.draw_screen()
         
         pygame.quit()
+
+    def clear_strokes(self):
+        self.strokes = []
+        self.current_stroke = []
+        self.current_points = 0
+        self.num_strokes = 0  # Reset stroke counter
 
 if __name__ == "__main__":
     tool = StyleTool()
